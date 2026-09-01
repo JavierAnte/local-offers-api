@@ -1,6 +1,9 @@
 package dto
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type CreateOfferRequest struct {
 	Headline    string  `json:"headline"`
@@ -12,6 +15,8 @@ type CreateOfferRequest struct {
 	ImageURL *string `json:"imageUrl"`
 
 	OfferType json.RawMessage `json:"offerType"`
+
+	ExpiresAt *time.Time `json:"expiresAt"`
 
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`

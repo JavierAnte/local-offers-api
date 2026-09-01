@@ -42,6 +42,8 @@ func (s *OfferService) Create(req dto.CreateOfferRequest) error {
 
 		Location: location,
 
+		ExpiresAt: req.ExpiresAt,
+
 		CreatedAt: time.Now(),
 	}
 
