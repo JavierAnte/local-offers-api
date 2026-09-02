@@ -36,6 +36,11 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
+const (
+	defaultRadiusMeters = 5000
+	maxRadiusMeters     = 20000
+)
+
 func (h *OfferHandler) FindNearby(w http.ResponseWriter, r *http.Request) {
 	latStr := r.URL.Query().Get("lat")
 	lngStr := r.URL.Query().Get("lng")
@@ -52,7 +57,20 @@ func (h *OfferHandler) FindNearby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	offers, err := h.service.FindNearby(latitude, longitude)
+	radius := defaultRadiusMeters
+	if radiusStr := r.URL.Query().Get("radius"); radiusStr != "" {
+		parsed, err := strconv.Atoi(radiusStr)
+		if err != nil || parsed <= 0 {
+			http.Error(w, "invalid radius", http.StatusBadRequest)
+			return
+		}
+		radius = parsed
+		if radius > maxRadiusMeters {
+			radius = maxRadiusMeters
+		}
+	}
+
+	offers, err := h.service.FindNearby(latitude, longitude, radius)
 	if err != nil {
 		http.Error(w, "failed to fetch offers", http.StatusInternalServerError)
 		return
