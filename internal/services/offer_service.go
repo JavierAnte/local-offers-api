@@ -53,12 +53,13 @@ func (s *OfferService) Create(req dto.CreateOfferRequest) error {
 func (s *OfferService) FindNearby(
 	latitude float64,
 	longitude float64,
+	radiusMeters int,
 ) ([]dto.OfferResponse, error) {
 
 	return s.repo.FindNearby(
 		latitude,
 		longitude,
-		5000,
+		radiusMeters,
 	)
 }
 

@@ -38,10 +38,10 @@ The frontend (`local-offers-app`) expects the API reachable at your machine's LA
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/health` | Healthcheck |
-| POST | `/offers` | Create an offer |
-| GET | `/offers/{id}` | Fetch an offer by id |
-| GET | `/offers/nearby?lat=&lng=` | Offers within 5km of a point, nearest first |
+| GET | `/health` | Healthcheck (unversioned) |
+| POST | `/api/v1/offers` | Create an offer |
+| GET | `/api/v1/offers/{id}` | Fetch an offer by id |
+| GET | `/api/v1/offers/nearby?lat=&lng=&radius=` | Offers within `radius` meters of a point (default 5000, max 20000), nearest first |
 
 No authentication, update/delete, or comment/vote endpoints exist yet.
 
