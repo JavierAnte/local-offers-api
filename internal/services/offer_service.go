@@ -20,7 +20,7 @@ func NewOfferService(repo *repositories.OfferRepository) *OfferService {
 	return &OfferService{repo: repo}
 }
 
-func (s *OfferService) Create(req dto.CreateOfferRequest) error {
+func (s *OfferService) Create(req dto.CreateOfferRequest, userID uuid.UUID) error {
 	location := fmt.Sprintf(
 		"SRID=4326;POINT(%f %f)",
 		req.Longitude,
@@ -41,6 +41,8 @@ func (s *OfferService) Create(req dto.CreateOfferRequest) error {
 		OfferType: datatypes.JSON(req.OfferType),
 
 		Location: location,
+
+		UserID: &userID,
 
 		ExpiresAt: req.ExpiresAt,
 

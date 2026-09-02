@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/JavierAnte/local-offers-api/internal/auth"
 	"github.com/JavierAnte/local-offers-api/internal/config"
 	"github.com/JavierAnte/local-offers-api/internal/database"
 	"github.com/JavierAnte/local-offers-api/internal/handlers"
@@ -37,14 +38,25 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
+	userRepo := repositories.NewUserRepository(db)
+	authService := services.NewAuthService(userRepo, cfg.JWTSecret)
+	authHandler := handlers.NewAuthHandler(authService)
+
 	offerRepo := repositories.NewOfferRepository(db)
 	offerService := services.NewOfferService(offerRepo)
 	offerHandler := handlers.NewOfferHandler(offerService)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Post("/offers", offerHandler.Create)
+		r.Post("/auth/register", authHandler.Register)
+		r.Post("/auth/login", authHandler.Login)
+
 		r.Get("/offers/{id}", offerHandler.FindByID)
 		r.Get("/offers/nearby", offerHandler.FindNearby)
+
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireAuth(cfg.JWTSecret))
+			r.Post("/offers", offerHandler.Create)
+		})
 	})
 
 	fmt.Printf("Server running on :%s\n", cfg.AppPort)
