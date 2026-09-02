@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/JavierAnte/local-offers-api/internal/auth"
 	"github.com/JavierAnte/local-offers-api/internal/dto"
 	"github.com/JavierAnte/local-offers-api/internal/services"
 	"github.com/go-chi/chi/v5"
@@ -19,6 +20,12 @@ func NewOfferHandler(service *services.OfferService) *OfferHandler {
 }
 
 func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req dto.CreateOfferRequest
 
 	err := json.NewDecoder(r.Body).Decode(&req)
@@ -27,7 +34,7 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.service.Create(req)
+	err = h.service.Create(req, userID)
 	if err != nil {
 		http.Error(w, "failed to create offer", http.StatusInternalServerError)
 		return

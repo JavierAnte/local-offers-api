@@ -4,13 +4,14 @@ Backend for LocalOffers, a hyperlocal, collaborative board of local offers: user
 
 ## Status
 
-Early WIP. A single vertical slice is implemented: creating an offer and finding offers near a point, backed by PostGIS geospatial queries. Users, auth, comments, and validate/invalidate voting are not modeled yet — see [CLAUDE.md](CLAUDE.md) for the current architecture and known gaps.
+Early WIP. Offer creation/lookup (backed by PostGIS geospatial queries) and real user registration/login (JWT) are implemented. Comments and validate/invalidate voting are not modeled yet — see [CLAUDE.md](CLAUDE.md) for the current architecture and known gaps.
 
 ## Tech stack
 
 - Go 1.23, [chi](https://github.com/go-chi/chi) router
 - PostgreSQL + PostGIS, via GORM (`gorm.io/gorm`, `gorm.io/driver/postgres`)
 - SQL migrations in the [golang-migrate](https://github.com/golang-migrate/migrate) file format
+- JWT auth (`golang-jwt/jwt/v5`) with bcrypt password hashing (`golang.org/x/crypto/bcrypt`)
 
 ## Getting started
 
@@ -30,20 +31,22 @@ psql "postgres://postgres:postgres@localhost:5432/local_offers?sslmode=disable" 
 go run ./cmd/api
 ```
 
-Config is read from `.env` (see the committed `.env` for local defaults — `APP_PORT`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE`).
+Config is read from `.env` (see the committed `.env` for local defaults — `APP_PORT`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE`, `JWT_SECRET`). `JWT_SECRET` is required — the API refuses to start without it. The committed value is an obviously-dev placeholder; use a real secret outside local dev.
 
 The frontend (`local-offers-app`) expects the API reachable at your machine's LAN IP, not `localhost`, when testing on a device via Expo Go.
 
 ## API
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/health` | Healthcheck (unversioned) |
-| POST | `/api/v1/offers` | Create an offer |
-| GET | `/api/v1/offers/{id}` | Fetch an offer by id |
-| GET | `/api/v1/offers/nearby?lat=&lng=&radius=` | Offers within `radius` meters of a point (default 5000, max 20000), nearest first |
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/health` | — | Healthcheck (unversioned) |
+| POST | `/api/v1/auth/register` | — | Register (`name`, `email`, `password` ≥ 8 chars) → `{token, user}` |
+| POST | `/api/v1/auth/login` | — | Login (`email`, `password`) → `{token, user}` |
+| POST | `/api/v1/offers` | Bearer JWT | Create an offer (creator taken from the token, not the body) |
+| GET | `/api/v1/offers/{id}` | — | Fetch an offer by id |
+| GET | `/api/v1/offers/nearby?lat=&lng=&radius=` | — | Offers within `radius` meters of a point (default 5000, max 20000), nearest first |
 
-No authentication, update/delete, or comment/vote endpoints exist yet.
+No update/delete, listing-all, or comment/vote endpoints exist yet.
 
 ## Project structure
 

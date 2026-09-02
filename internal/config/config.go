@@ -16,12 +16,19 @@ type Config struct {
 	DBUser     string
 	DBPassword string
 	DBSSLMode  string
+
+	JWTSecret string
 }
 
 func Load() *Config {
 	err := godotenv.Load()
 	if err != nil {
 		log.Println(".env file not found")
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET is not set")
 	}
 
 	return &Config{
@@ -33,5 +40,7 @@ func Load() *Config {
 		DBUser:     os.Getenv("DB_USER"),
 		DBPassword: os.Getenv("DB_PASSWORD"),
 		DBSSLMode:  os.Getenv("DB_SSLMODE"),
+
+		JWTSecret: jwtSecret,
 	}
 }

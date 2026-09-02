@@ -22,6 +22,8 @@ type Offer struct {
 
 	Location string `gorm:"type:geography(POINT,4326)"`
 
+	UserID *uuid.UUID `gorm:"type:uuid"`
+
 	ExpiresAt *time.Time
 
 	ConfirmationsCount int

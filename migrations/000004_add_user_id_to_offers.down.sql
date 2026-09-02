@@ -1,0 +1,2 @@
+ALTER TABLE offers
+    DROP COLUMN IF EXISTS user_id;
