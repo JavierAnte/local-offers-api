@@ -46,16 +46,22 @@ func main() {
 	offerService := services.NewOfferService(offerRepo)
 	offerHandler := handlers.NewOfferHandler(offerService)
 
+	commentRepo := repositories.NewCommentRepository(db)
+	commentService := services.NewCommentService(commentRepo)
+	commentHandler := handlers.NewCommentHandler(commentService)
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/register", authHandler.Register)
 		r.Post("/auth/login", authHandler.Login)
 
 		r.Get("/offers/{id}", offerHandler.FindByID)
 		r.Get("/offers/nearby", offerHandler.FindNearby)
+		r.Get("/offers/{id}/comments", commentHandler.List)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth(cfg.JWTSecret))
 			r.Post("/offers", offerHandler.Create)
+			r.Post("/offers/{id}/comments", commentHandler.Create)
 		})
 	})
 
