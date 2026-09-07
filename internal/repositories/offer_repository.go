@@ -1,8 +1,6 @@
 package repositories
 
 import (
-	"math/rand"
-
 	"github.com/JavierAnte/local-offers-api/internal/dto"
 	"github.com/JavierAnte/local-offers-api/internal/models"
 	"github.com/google/uuid"
@@ -61,6 +59,8 @@ func (r *OfferRepository) FindNearby(
 			o.invalidations_count,
 			o.created_at,
 
+			(SELECT COUNT(*) FROM comments c WHERE c.offer_id = o.id) AS comments_count,
+
 			u.id AS posted_by_id,
 			u.name AS posted_by_name
 		FROM offers o
@@ -91,7 +91,6 @@ func (r *OfferRepository) FindNearby(
 	for i := range rows {
 		offers[i] = rows[i].OfferResponse
 		offers[i].IsVerifiedBusiness = false
-		offers[i].CommentsCount = rand.Intn(11) // 0-10 — comments aren't modeled yet
 		offers[i].PostedBy = postedByFrom(rows[i].PostedByID, rows[i].PostedByName)
 	}
 
@@ -119,6 +118,8 @@ func (r *OfferRepository) FindByID(id string) (*dto.OfferResponse, error) {
 			o.invalidations_count,
 			o.created_at,
 
+			(SELECT COUNT(*) FROM comments c WHERE c.offer_id = o.id) AS comments_count,
+
 			u.id AS posted_by_id,
 			u.name AS posted_by_name
 		FROM offers o
@@ -134,7 +135,6 @@ func (r *OfferRepository) FindByID(id string) (*dto.OfferResponse, error) {
 
 	offer := row.OfferResponse
 	offer.IsVerifiedBusiness = false
-	offer.CommentsCount = rand.Intn(11) // 0-10 — comments aren't modeled yet
 	offer.PostedBy = postedByFrom(row.PostedByID, row.PostedByName)
 
 	return &offer, nil
