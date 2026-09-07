@@ -43,9 +43,9 @@ internal/services      → business logic; DTO↔model translation
 internal/handlers      → HTTP layer: decode request, call service, write JSON response
 ```
 
-Three domains exist: **Offer**, **User/Auth**, and **Comment** (`internal/{models,dto,repositories,services,handlers}/{offer,auth,user,comment}*.go`, plus the standalone `internal/auth` package for JWT). When adding a new domain (e.g. votes), mirror this same repo→service→handler split and register routes under the `/api/v1` group in `main.go`.
+Four domains exist: **Offer**, **User/Auth**, **Comment**, and **OfferVote** (`internal/{models,dto,repositories,services,handlers}/{offer,auth,user,comment,offer_vote}*.go`, plus the standalone `internal/auth` package for JWT). When adding a new domain, mirror this same repo→service→handler split and register routes under the `/api/v1` group in `main.go`.
 
-`main.go` wires chi middleware in this order: `middleware.Logger` (request logging), `middleware.Recoverer` (panic recovery → 500 instead of a crash), then `cors.Handler` (wide open `AllowedOrigins: []string{"*"}` — fine for now since auth is Bearer-token, not cookie-based). `/health` stays unversioned at the router root; everything else lives under `/api/v1`. `POST /api/v1/offers` is wrapped in its own `r.Group` with `auth.RequireAuth(cfg.JWTSecret)` — that's the only protected route so far; browsing offers stays public per the product's intent.
+`main.go` wires chi middleware in this order: `middleware.Logger` (request logging), `middleware.Recoverer` (panic recovery → 500 instead of a crash), then `cors.Handler` (wide open `AllowedOrigins: []string{"*"}` — fine for now since auth is Bearer-token, not cookie-based). `/health` stays unversioned at the router root; everything else lives under `/api/v1`. `POST /api/v1/offers`, `POST /api/v1/offers/{id}/comments`, and `POST /api/v1/offers/{id}/votes` are wrapped in one `r.Group` with `auth.RequireAuth(cfg.JWTSecret)` — the only protected routes so far; browsing offers stays public per the product's intent.
 
 ### Auth
 
@@ -57,7 +57,7 @@ Three domains exist: **Offer**, **User/Auth**, and **Comment** (`internal/{model
 
 `offers` table (see `migrations/`): `id` (UUID), `headline`, `description`, `business_name`, `category`, `image_url`, `offer_type` (JSONB — polymorphic shape, see below), `location` (`GEOGRAPHY(POINT,4326)`, GIST-indexed), `user_id` (UUID, nullable FK → `users.id`), `expires_at`, `confirmations_count`, `invalidations_count`, `created_at`.
 
-`users` table: `id` (UUID), `name`, `email` (unique), `password_hash`, `created_at`. `comments` table (migration `000005`): `id` (UUID), `offer_id` (FK → `offers.id`), `user_id` (FK → `users.id`), `body`, `created_at`. `confirmations_count`/`invalidations_count` are still plain counters with no per-user vote tracking (nothing can move them yet).
+`users` table: `id` (UUID), `name`, `email` (unique), `password_hash`, `created_at`. `comments` table (migration `000005`): `id` (UUID), `offer_id` (FK → `offers.id`), `user_id` (FK → `users.id`), `body`, `created_at`. `offer_votes` table (migration `000006`): `id` (UUID), `offer_id` (FK → `offers.id`), `user_id` (FK → `users.id`), `type` (`'validate'`/`'invalidate'`, CHECK-constrained), `created_at`, unique on `(offer_id, user_id)` so a user can only hold one vote per offer (re-voting flips it via upsert). `offers.confirmations_count`/`invalidations_count` are denormalized `COUNT(*)` snapshots of `offer_votes`, recalculated and persisted inside the same transaction as the vote upsert (`internal/repositories/offer_vote_repository.go`'s `Vote`) — never written directly.
 
 `offer_type` JSONB shapes (no DB-level schema/CHECK constraint — validate in Go): `{"type":"percentage","percentage":N}`, `{"type":"discount","percentage":N}`, `{"type":"bundle","label":"..."}`, `{"type":"text","label":"..."}`.
 
@@ -69,4 +69,4 @@ Three domains exist: **Offer**, **User/Auth**, and **Comment** (`internal/{model
 
 ### Current API surface
 
-`GET /health` (unversioned), `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/offers` (auth required), `GET /api/v1/offers/{id}`, `GET /api/v1/offers/nearby?lat=&lng=&radius=`, `GET /api/v1/offers/{id}/comments`, `POST /api/v1/offers/{id}/comments` (auth required) — no update/delete, no listing-all, no vote endpoints yet. `PostedBy` and `CommentsCount` are now real (see Auth above and `internal/repositories/offer_repository.go`'s `comments_count` subquery); `IsVerifiedBusiness` is still always `false` — a placeholder until verified-business is modeled.
+`GET /health` (unversioned), `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/offers` (auth required), `GET /api/v1/offers/{id}`, `GET /api/v1/offers/nearby?lat=&lng=&radius=`, `GET /api/v1/offers/{id}/comments`, `POST /api/v1/offers/{id}/comments` (auth required), `POST /api/v1/offers/{id}/votes` (auth required, body `{"type":"validate"|"invalidate"}`, returns the offer's updated `{confirmationsCount, invalidationsCount}`) — no update/delete, no listing-all yet. `PostedBy` and `CommentsCount` are now real (see Auth above and `internal/repositories/offer_repository.go`'s `comments_count` subquery); `IsVerifiedBusiness` is still always `false` — a placeholder until verified-business is modeled.

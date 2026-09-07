@@ -50,6 +50,10 @@ func main() {
 	commentService := services.NewCommentService(commentRepo)
 	commentHandler := handlers.NewCommentHandler(commentService)
 
+	offerVoteRepo := repositories.NewOfferVoteRepository(db)
+	offerVoteService := services.NewOfferVoteService(offerVoteRepo)
+	offerVoteHandler := handlers.NewOfferVoteHandler(offerVoteService)
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/register", authHandler.Register)
 		r.Post("/auth/login", authHandler.Login)
@@ -62,6 +66,7 @@ func main() {
 			r.Use(auth.RequireAuth(cfg.JWTSecret))
 			r.Post("/offers", offerHandler.Create)
 			r.Post("/offers/{id}/comments", commentHandler.Create)
+			r.Post("/offers/{id}/votes", offerVoteHandler.Create)
 		})
 	})
 
