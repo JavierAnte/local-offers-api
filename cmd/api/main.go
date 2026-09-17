@@ -38,6 +38,9 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
+	const uploadDir = "uploads"
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
+
 	userRepo := repositories.NewUserRepository(db)
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret)
 	authHandler := handlers.NewAuthHandler(authService)
@@ -54,6 +57,9 @@ func main() {
 	offerVoteService := services.NewOfferVoteService(offerVoteRepo)
 	offerVoteHandler := handlers.NewOfferVoteHandler(offerVoteService)
 
+	uploadService := services.NewUploadService(uploadDir)
+	uploadHandler := handlers.NewUploadHandler(uploadService)
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/register", authHandler.Register)
 		r.Post("/auth/login", authHandler.Login)
@@ -67,6 +73,7 @@ func main() {
 			r.Post("/offers", offerHandler.Create)
 			r.Post("/offers/{id}/comments", commentHandler.Create)
 			r.Post("/offers/{id}/votes", offerVoteHandler.Create)
+			r.Post("/uploads", uploadHandler.Create)
 		})
 	})
 
