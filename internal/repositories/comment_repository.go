@@ -29,7 +29,13 @@ func (r *CommentRepository) Create(comment *models.Comment) error {
 	return r.db.Create(comment).Error
 }
 
-func (r *CommentRepository) FindByOfferID(offerID string) ([]dto.CommentResponse, error) {
+func (r *CommentRepository) OfferExists(offerID uuid.UUID) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.Offer{}).Where("id = ?", offerID).Count(&count).Error
+	return count > 0, err
+}
+
+func (r *CommentRepository) FindByOfferID(offerID uuid.UUID) ([]dto.CommentResponse, error) {
 	var rows []commentRow
 
 	query := `

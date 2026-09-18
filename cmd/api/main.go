@@ -1,45 +1,37 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"errors"
+	"log"
 	"net/http"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/JavierAnte/local-offers-api/internal/auth"
 	"github.com/JavierAnte/local-offers-api/internal/config"
 	"github.com/JavierAnte/local-offers-api/internal/database"
 	"github.com/JavierAnte/local-offers-api/internal/handlers"
 	"github.com/JavierAnte/local-offers-api/internal/repositories"
+	"github.com/JavierAnte/local-offers-api/internal/server"
 	"github.com/JavierAnte/local-offers-api/internal/services"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
 )
 
 func main() {
 	cfg := config.Load()
 
 	db := database.Connect(cfg)
-
-	r := chi.NewRouter()
-
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
-	r.Use(cors.Handler(cors.Options{
-		// Mobile clients (Expo Go, native builds) don't send a browser Origin,
-		// and there's no cookie-based auth yet, so a permissive origin is safe here.
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
-		AllowCredentials: false,
-		MaxAge:           300,
-	}))
-
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("OK"))
-	})
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("access database connection: %v", err)
+	}
+	defer func() {
+		if err := sqlDB.Close(); err != nil {
+			log.Printf("close database connection: %v", err)
+		}
+	}()
 
 	const uploadDir = "uploads"
-	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
 
 	userRepo := repositories.NewUserRepository(db)
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret)
@@ -60,24 +52,45 @@ func main() {
 	uploadService := services.NewUploadService(uploadDir)
 	uploadHandler := handlers.NewUploadHandler(uploadService)
 
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Post("/auth/register", authHandler.Register)
-		r.Post("/auth/login", authHandler.Login)
-
-		r.Get("/offers/{id}", offerHandler.FindByID)
-		r.Get("/offers/nearby", offerHandler.FindNearby)
-		r.Get("/offers/{id}/comments", commentHandler.List)
-
-		r.Group(func(r chi.Router) {
-			r.Use(auth.RequireAuth(cfg.JWTSecret))
-			r.Post("/offers", offerHandler.Create)
-			r.Post("/offers/{id}/comments", commentHandler.Create)
-			r.Post("/offers/{id}/votes", offerVoteHandler.Create)
-			r.Post("/uploads", uploadHandler.Create)
-		})
+	r := server.NewRouter(cfg.JWTSecret, uploadDir, server.Handlers{
+		Auth:      authHandler,
+		Offer:     offerHandler,
+		Comment:   commentHandler,
+		OfferVote: offerVoteHandler,
+		Upload:    uploadHandler,
 	})
 
-	fmt.Printf("Server running on :%s\n", cfg.AppPort)
+	httpServer := &http.Server{
+		Addr:              ":" + cfg.AppPort,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 
-	http.ListenAndServe(":"+cfg.AppPort, r)
+	shutdownSignal, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	serverErrors := make(chan error, 1)
+	go func() {
+		log.Printf("Server running on %s", httpServer.Addr)
+		serverErrors <- httpServer.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErrors:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server failed: %v", err)
+		}
+	case <-shutdownSignal.Done():
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownContext); err != nil {
+			log.Printf("graceful shutdown failed: %v", err)
+			if err := httpServer.Close(); err != nil {
+				log.Printf("forced server close failed: %v", err)
+			}
+		}
+	}
 }
