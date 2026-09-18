@@ -1,12 +1,14 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 
 	"github.com/JavierAnte/local-offers-api/internal/dto"
+	"github.com/JavierAnte/local-offers-api/internal/httpx"
 	"github.com/JavierAnte/local-offers-api/internal/services"
 )
 
@@ -16,10 +18,14 @@ import (
 const maxUploadBytes = 10 << 20 // 10MB
 
 type UploadHandler struct {
-	service *services.UploadService
+	service uploadService
 }
 
-func NewUploadHandler(service *services.UploadService) *UploadHandler {
+type uploadService interface {
+	Save(file io.Reader) (string, error)
+}
+
+func NewUploadHandler(service uploadService) *UploadHandler {
 	return &UploadHandler{service: service}
 }
 
@@ -28,13 +34,16 @@ func (h *UploadHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	err := r.ParseMultipartForm(2 << 20)
 	if err != nil {
-		http.Error(w, "invalid or too large upload (max 10MB)", http.StatusBadRequest)
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_upload", "The upload must be a multipart image no larger than 10 MB.")
 		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
 	}
 
 	file, _, err := r.FormFile("image")
 	if err != nil {
-		http.Error(w, "missing image file", http.StatusBadRequest)
+		httpx.WriteError(w, http.StatusBadRequest, "missing_image", "The multipart field 'image' is required.")
 		return
 	}
 	defer file.Close()
@@ -43,9 +52,10 @@ func (h *UploadHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrInvalidInput):
-			http.Error(w, "invalid image", http.StatusBadRequest)
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_image", "The uploaded file is not a supported image.")
 		default:
-			http.Error(w, "failed to save image", http.StatusInternalServerError)
+			log.Printf("save upload: %v", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "An unexpected error occurred.")
 		}
 		return
 	}
@@ -59,8 +69,5 @@ func (h *UploadHandler) Create(w http.ResponseWriter, r *http.Request) {
 		URL: fmt.Sprintf("%s://%s/uploads/%s", scheme, r.Host, filename),
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-
-	json.NewEncoder(w).Encode(result)
+	httpx.WriteJSON(w, http.StatusCreated, result)
 }

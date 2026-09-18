@@ -26,6 +26,13 @@ func (r *OfferVoteRepository) Vote(
 ) (confirmationsCount int, invalidationsCount int, err error) {
 
 	err = r.db.Transaction(func(tx *gorm.DB) error {
+		var offer models.Offer
+		// Serialize votes for the same offer so each transaction counts all
+		// previously committed votes before refreshing the denormalized totals.
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&offer, "id = ?", offerID).Error; err != nil {
+			return err
+		}
+
 		vote := models.OfferVote{
 			ID: uuid.New(),
 

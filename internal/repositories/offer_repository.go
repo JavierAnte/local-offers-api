@@ -97,7 +97,7 @@ func (r *OfferRepository) FindNearby(
 	return offers, nil
 }
 
-func (r *OfferRepository) FindByID(id string) (*dto.OfferResponse, error) {
+func (r *OfferRepository) FindByID(id uuid.UUID) (*dto.OfferResponse, error) {
 	var row offerRow
 
 	query := `
@@ -128,9 +128,12 @@ func (r *OfferRepository) FindByID(id string) (*dto.OfferResponse, error) {
 		LIMIT 1;
 	`
 
-	err := r.db.Raw(query, id).Scan(&row).Error
-	if err != nil {
-		return nil, err
+	result := r.db.Raw(query, id).Scan(&row)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
 	}
 
 	offer := row.OfferResponse

@@ -32,6 +32,9 @@ func ParseToken(secret string, tokenString string) (uuid.UUID, error) {
 	c := &claims{}
 
 	token, err := jwt.ParseWithClaims(tokenString, c, func(t *jwt.Token) (interface{}, error) {
+		if t.Method != jwt.SigningMethodHS256 {
+			return nil, errors.New("unexpected signing method")
+		}
 		return []byte(secret), nil
 	})
 	if err != nil || !token.Valid {

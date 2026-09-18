@@ -2,13 +2,13 @@ package services
 
 import (
 	"errors"
+	"net/mail"
 	"strings"
 	"time"
 
 	"github.com/JavierAnte/local-offers-api/internal/auth"
 	"github.com/JavierAnte/local-offers-api/internal/dto"
 	"github.com/JavierAnte/local-offers-api/internal/models"
-	"github.com/JavierAnte/local-offers-api/internal/repositories"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -16,11 +16,16 @@ import (
 )
 
 type AuthService struct {
-	repo      *repositories.UserRepository
+	repo      userRepository
 	jwtSecret string
 }
 
-func NewAuthService(repo *repositories.UserRepository, jwtSecret string) *AuthService {
+type userRepository interface {
+	Create(user *models.User) error
+	FindByEmail(email string) (*models.User, error)
+}
+
+func NewAuthService(repo userRepository, jwtSecret string) *AuthService {
 	return &AuthService{repo: repo, jwtSecret: jwtSecret}
 }
 
@@ -28,7 +33,8 @@ func (s *AuthService) Register(req dto.RegisterRequest) (*dto.AuthResponse, erro
 	name := strings.TrimSpace(req.Name)
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 
-	if name == "" || email == "" || len(req.Password) < 8 {
+	address, emailErr := mail.ParseAddress(email)
+	if name == "" || len(name) > 80 || emailErr != nil || address.Address != email || len(email) > 254 || len(req.Password) < 8 || len(req.Password) > 72 {
 		return nil, ErrInvalidInput
 	}
 
@@ -57,10 +63,16 @@ func (s *AuthService) Register(req dto.RegisterRequest) (*dto.AuthResponse, erro
 
 func (s *AuthService) Login(req dto.LoginRequest) (*dto.AuthResponse, error) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" || req.Password == "" {
+		return nil, ErrInvalidCredentials
+	}
 
 	user, err := s.repo.FindByEmail(email)
 	if err != nil {
-		return nil, ErrInvalidCredentials
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, err
 	}
 
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {

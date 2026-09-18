@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/JavierAnte/local-offers-api/internal/httpx"
 	"github.com/google/uuid"
 )
 
@@ -22,13 +23,13 @@ func RequireAuth(jwtSecret string) func(http.Handler) http.Handler {
 			header := r.Header.Get("Authorization")
 			token, ok := strings.CutPrefix(header, "Bearer ")
 			if !ok || token == "" {
-				http.Error(w, "missing bearer token", http.StatusUnauthorized)
+				httpx.WriteError(w, http.StatusUnauthorized, "authentication_required", "A valid bearer token is required.")
 				return
 			}
 
 			userID, err := ParseToken(jwtSecret, token)
 			if err != nil {
-				http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "The bearer token is invalid or expired.")
 				return
 			}
 

@@ -1,18 +1,24 @@
 package services
 
 import (
+	"errors"
+
 	"github.com/JavierAnte/local-offers-api/internal/dto"
 	"github.com/JavierAnte/local-offers-api/internal/models"
-	"github.com/JavierAnte/local-offers-api/internal/repositories"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type OfferVoteService struct {
-	repo *repositories.OfferVoteRepository
+	repo offerVoteRepository
 }
 
-func NewOfferVoteService(repo *repositories.OfferVoteRepository) *OfferVoteService {
+type offerVoteRepository interface {
+	Vote(offerID uuid.UUID, userID uuid.UUID, voteType models.VoteType) (int, int, error)
+}
+
+func NewOfferVoteService(repo offerVoteRepository) *OfferVoteService {
 	return &OfferVoteService{repo: repo}
 }
 
@@ -29,6 +35,9 @@ func (s *OfferVoteService) Vote(offerID string, userID uuid.UUID, voteType strin
 
 	confirmations, invalidations, err := s.repo.Vote(parsedOfferID, userID, parsedType)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.VoteResponse{}, ErrNotFound
+		}
 		return dto.VoteResponse{}, err
 	}
 
