@@ -55,11 +55,15 @@ func integrationDB(t *testing.T) *gorm.DB {
 func TestRepositoriesWithPostGIS(t *testing.T) {
 	db := integrationDB(t)
 	userID := uuid.New()
+	otherUserID := uuid.New()
 	offerNearID := uuid.New()
 	offerFarID := uuid.New()
 
 	if err := db.Exec(`INSERT INTO users (id, name, email, password_hash) VALUES (?, 'Tester', 'tester@example.com', 'hash')`, userID).Error; err != nil {
 		t.Fatalf("insert user: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO users (id, name, email, password_hash) VALUES (?, 'Other', 'other@example.com', 'hash')`, otherUserID).Error; err != nil {
+		t.Fatalf("insert other user: %v", err)
 	}
 	insertOffer := `INSERT INTO offers (id, headline, business_name, category, offer_type, location, user_id)
 		VALUES (?, ?, 'Local', 'food', '{"type":"percentage","percentage":20}', ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)`
@@ -69,17 +73,29 @@ func TestRepositoriesWithPostGIS(t *testing.T) {
 	if err := db.Exec(insertOffer, offerFarID, "Far", -64.41, -31.21, userID).Error; err != nil {
 		t.Fatalf("insert far offer: %v", err)
 	}
+	if err := db.Exec(insertOffer, uuid.New(), "Someone else's", -64.4, -31.2, otherUserID).Error; err != nil {
+		t.Fatalf("insert other user's offer: %v", err)
+	}
 
 	offerRepo := NewOfferRepository(db)
 	offers, err := offerRepo.FindNearby(-31.2, -64.4, 5000)
 	if err != nil {
 		t.Fatalf("FindNearby() error = %v", err)
 	}
-	if len(offers) != 2 || offers[0].ID != offerNearID || offers[0].PostedBy.ID != userID.String() {
+	if len(offers) != 3 || offers[0].ID != offerNearID || offers[0].PostedBy.ID != userID.String() {
 		t.Fatalf("FindNearby() = %#v", offers)
 	}
 	if _, err := offerRepo.FindByID(uuid.New()); err != gorm.ErrRecordNotFound {
 		t.Fatalf("FindByID(missing) error = %v, want record not found", err)
+	}
+	myOffers, err := offerRepo.FindByUserID(userID)
+	if err != nil || len(myOffers) != 2 {
+		t.Fatalf("FindByUserID() returned %d offers, %v", len(myOffers), err)
+	}
+	for _, offer := range myOffers {
+		if offer.PostedBy.ID != userID.String() {
+			t.Fatalf("FindByUserID() included another user's offer: %#v", offer)
+		}
 	}
 
 	commentRepo := NewCommentRepository(db)

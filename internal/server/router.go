@@ -16,6 +16,7 @@ type Handlers struct {
 	Comment   *handlers.CommentHandler
 	OfferVote *handlers.OfferVoteHandler
 	Upload    *handlers.UploadHandler
+	User      *handlers.UserHandler
 }
 
 func NewRouter(jwtSecret string, uploadDir string, h Handlers) http.Handler {
@@ -51,6 +52,8 @@ func NewRouter(jwtSecret string, uploadDir string, h Handlers) http.Handler {
 			r.Post("/offers/{id}/comments", h.Comment.Create)
 			r.Post("/offers/{id}/votes", h.OfferVote.Create)
 			r.Post("/uploads", h.Upload.Create)
+			r.Get("/me", h.User.Me)
+			r.Get("/me/offers", h.User.MyOffers)
 		})
 	})
 
