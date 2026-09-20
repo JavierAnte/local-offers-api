@@ -30,15 +30,22 @@ func TestRouterProtectsWriteRoutes(t *testing.T) {
 		Comment: &handlers.CommentHandler{}, OfferVote: &handlers.OfferVoteHandler{},
 		Upload: &handlers.UploadHandler{},
 	})
-	paths := []string{"/api/v1/offers", "/api/v1/offers/id/comments", "/api/v1/offers/id/votes", "/api/v1/uploads"}
-	for _, path := range paths {
+	requests := []struct{ method, path string }{
+		{http.MethodPost, "/api/v1/offers"},
+		{http.MethodPost, "/api/v1/offers/id/comments"},
+		{http.MethodPost, "/api/v1/offers/id/votes"},
+		{http.MethodPost, "/api/v1/uploads"},
+		{http.MethodGet, "/api/v1/me"},
+		{http.MethodGet, "/api/v1/me/offers"},
+	}
+	for _, request := range requests {
 		recorder := httptest.NewRecorder()
-		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, nil))
+		router.ServeHTTP(recorder, httptest.NewRequest(request.method, request.path, nil))
 		if recorder.Code != http.StatusUnauthorized {
-			t.Fatalf("POST %s status = %d", path, recorder.Code)
+			t.Fatalf("%s %s status = %d", request.method, request.path, recorder.Code)
 		}
 		if !strings.Contains(recorder.Body.String(), `"code":"authentication_required"`) {
-			t.Fatalf("POST %s body = %s", path, recorder.Body.String())
+			t.Fatalf("%s %s body = %s", request.method, request.path, recorder.Body.String())
 		}
 	}
 }

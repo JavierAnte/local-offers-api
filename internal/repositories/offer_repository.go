@@ -143,6 +143,46 @@ func (r *OfferRepository) FindByID(id uuid.UUID) (*dto.OfferResponse, error) {
 	return &offer, nil
 }
 
+func (r *OfferRepository) FindByUserID(userID uuid.UUID) ([]dto.OfferResponse, error) {
+	var rows []offerRow
+
+	query := `
+		SELECT
+			o.id,
+			o.headline,
+			o.description,
+			o.business_name,
+			o.category,
+			o.image_url,
+			o.offer_type,
+			o.expires_at,
+			ST_Y(o.location::geometry) AS latitude,
+			ST_X(o.location::geometry) AS longitude,
+			o.confirmations_count,
+			o.invalidations_count,
+			o.created_at,
+			(SELECT COUNT(*) FROM comments c WHERE c.offer_id = o.id) AS comments_count,
+			u.id AS posted_by_id,
+			u.name AS posted_by_name
+		FROM offers o
+		JOIN users u ON u.id = o.user_id
+		WHERE o.user_id = ?
+		ORDER BY o.created_at DESC;
+	`
+
+	if err := r.db.Raw(query, userID).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	offers := make([]dto.OfferResponse, len(rows))
+	for i := range rows {
+		offers[i] = rows[i].OfferResponse
+		offers[i].IsVerifiedBusiness = false
+		offers[i].PostedBy = postedByFrom(rows[i].PostedByID, rows[i].PostedByName)
+	}
+	return offers, nil
+}
+
 func postedByFrom(id *uuid.UUID, name *string) dto.PostedByInfo {
 	if id == nil {
 		return dto.PostedByInfo{Name: "Usuario LocalOffers"}

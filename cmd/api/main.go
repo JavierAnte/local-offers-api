@@ -36,10 +36,11 @@ func main() {
 	userRepo := repositories.NewUserRepository(db)
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret)
 	authHandler := handlers.NewAuthHandler(authService)
-
 	offerRepo := repositories.NewOfferRepository(db)
 	offerService := services.NewOfferService(offerRepo)
 	offerHandler := handlers.NewOfferHandler(offerService)
+	userService := services.NewUserService(userRepo, offerRepo)
+	userHandler := handlers.NewUserHandler(userService)
 
 	commentRepo := repositories.NewCommentRepository(db)
 	commentService := services.NewCommentService(commentRepo)
@@ -58,6 +59,7 @@ func main() {
 		Comment:   commentHandler,
 		OfferVote: offerVoteHandler,
 		Upload:    uploadHandler,
+		User:      userHandler,
 	})
 
 	httpServer := &http.Server{

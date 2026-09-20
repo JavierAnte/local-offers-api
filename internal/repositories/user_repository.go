@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"github.com/JavierAnte/local-offers-api/internal/models"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -22,6 +23,16 @@ func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 
 	err := r.db.Where("email = ?", email).First(&user).Error
 	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+func (r *UserRepository) FindByID(id uuid.UUID) (*models.User, error) {
+	var user models.User
+
+	if err := r.db.First(&user, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 
