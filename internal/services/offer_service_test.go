@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,13 +18,15 @@ type fakeOfferRepository struct {
 	createErr error
 	found     *dto.OfferResponse
 	findErr   error
+	nearby    *dto.NearbyOffersQuery
 }
 
 func (f *fakeOfferRepository) Create(offer *models.Offer) error {
 	f.created = offer
 	return f.createErr
 }
-func (f *fakeOfferRepository) FindNearby(float64, float64, int) ([]dto.OfferResponse, error) {
+func (f *fakeOfferRepository) FindNearby(query dto.NearbyOffersQuery) ([]dto.OfferResponse, error) {
+	f.nearby = &query
 	return nil, f.findErr
 }
 func (f *fakeOfferRepository) FindByID(uuid.UUID) (*dto.OfferResponse, error) {
@@ -120,5 +123,45 @@ func TestOfferServiceFindByID(t *testing.T) {
 	}
 	if _, err := service.FindByID(uuid.NewString()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing id error = %v", err)
+	}
+}
+
+func TestOfferServiceFindNearbyNormalizesFilters(t *testing.T) {
+	t.Parallel()
+	repo := &fakeOfferRepository{}
+	query := dto.NearbyOffersQuery{
+		Latitude: -31.2, Longitude: -64.4, RadiusMeters: 5000,
+		Category: " food ", Search: " Pizza ",
+	}
+	if _, err := NewOfferService(repo).FindNearby(query); err != nil {
+		t.Fatalf("FindNearby() error = %v", err)
+	}
+	if repo.nearby == nil || repo.nearby.Category != "food" || repo.nearby.Search != "Pizza" {
+		t.Fatalf("normalized query = %#v", repo.nearby)
+	}
+}
+
+func TestOfferServiceFindNearbyRejectsInvalidFilters(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		query dto.NearbyOffersQuery
+		want  error
+	}{
+		{"coordinates", dto.NearbyOffersQuery{Latitude: 91, Longitude: -64.4, RadiusMeters: 5000}, ErrInvalidInput},
+		{"radius", dto.NearbyOffersQuery{Latitude: -31.2, Longitude: -64.4}, ErrInvalidInput},
+		{"category", dto.NearbyOffersQuery{Latitude: -31.2, Longitude: -64.4, RadiusMeters: 5000, Category: "cars"}, ErrInvalidCategory},
+		{"search", dto.NearbyOffersQuery{Latitude: -31.2, Longitude: -64.4, RadiusMeters: 5000, Search: strings.Repeat("é", 101)}, ErrInvalidSearchQuery},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeOfferRepository{}
+			if _, err := NewOfferService(repo).FindNearby(tt.query); !errors.Is(err, tt.want) {
+				t.Fatalf("FindNearby() error = %v, want %v", err, tt.want)
+			}
+			if repo.nearby != nil {
+				t.Fatal("invalid filters reached repository")
+			}
+		})
 	}
 }

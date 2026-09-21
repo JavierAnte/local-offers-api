@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/JavierAnte/local-offers-api/internal/dto"
 	"github.com/JavierAnte/local-offers-api/internal/models"
 	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
@@ -78,13 +79,78 @@ func TestRepositoriesWithPostGIS(t *testing.T) {
 	}
 
 	offerRepo := NewOfferRepository(db)
-	offers, err := offerRepo.FindNearby(-31.2, -64.4, 5000)
+	offers, err := offerRepo.FindNearby(dto.NearbyOffersQuery{
+		Latitude: -31.2, Longitude: -64.4, RadiusMeters: 5000,
+	})
 	if err != nil {
 		t.Fatalf("FindNearby() error = %v", err)
 	}
 	if len(offers) != 3 || offers[0].ID != offerNearID || offers[0].PostedBy.ID != userID.String() {
 		t.Fatalf("FindNearby() = %#v", offers)
 	}
+
+	filteredOfferID := uuid.New()
+	if err := db.Exec(`INSERT INTO offers
+		(id, headline, description, business_name, category, offer_type, location, user_id)
+		VALUES (?, 'Gran descuento', 'Incluye pizza familiar', 'Mercado Centro', 'grocery',
+		'{"type":"percentage","percentage":30}',
+		ST_SetSRID(ST_MakePoint(-64.405, -31.205), 4326)::geography, ?)`, filteredOfferID, otherUserID).Error; err != nil {
+		t.Fatalf("insert filtered offer: %v", err)
+	}
+
+	assertNearbyIDs := func(name string, query dto.NearbyOffersQuery, want ...uuid.UUID) {
+		t.Helper()
+		got, err := offerRepo.FindNearby(query)
+		if err != nil {
+			t.Fatalf("%s: FindNearby() error = %v", name, err)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("%s: got %d offers, want %d: %#v", name, len(got), len(want), got)
+		}
+		for i := range want {
+			if got[i].ID != want[i] {
+				t.Fatalf("%s: offer %d = %s, want %s", name, i, got[i].ID, want[i])
+			}
+		}
+	}
+	baseQuery := dto.NearbyOffersQuery{Latitude: -31.2, Longitude: -64.4, RadiusMeters: 5000}
+	categoryQuery := baseQuery
+	categoryQuery.Category = "grocery"
+	assertNearbyIDs("category", categoryQuery, filteredOfferID)
+	searchQuery := baseQuery
+	searchQuery.Search = "PIZZA"
+	assertNearbyIDs("description search", searchQuery, filteredOfferID)
+	searchQuery.Search = "mercado centro"
+	assertNearbyIDs("business search", searchQuery, filteredOfferID)
+	searchQuery.Search = "gran descuento"
+	assertNearbyIDs("headline search", searchQuery, filteredOfferID)
+	searchQuery.Search = "%_"
+	assertNearbyIDs("literal wildcard search", searchQuery)
+	combinedQuery := baseQuery
+	combinedQuery.Category = "food"
+	combinedQuery.Search = "pizza"
+	assertNearbyIDs("combined filters", combinedQuery)
+
+	limitMatchID := uuid.New()
+	if err := db.Exec(`INSERT INTO offers
+		(id, headline, business_name, category, offer_type, location, user_id)
+		VALUES (?, 'Needle after fifty', 'Search Test', 'sports',
+		'{"type":"text","label":"Deal"}',
+		ST_SetSRID(ST_MakePoint(-64.415, -31.215), 4326)::geography, ?)`, limitMatchID, otherUserID).Error; err != nil {
+		t.Fatalf("insert limit match: %v", err)
+	}
+	for i := 0; i < 51; i++ {
+		if err := db.Exec(`INSERT INTO offers
+			(id, headline, business_name, category, offer_type, location, user_id)
+			VALUES (?, 'Closer non-match', 'Search Test', 'sports',
+			'{"type":"text","label":"Deal"}',
+			ST_SetSRID(ST_MakePoint(-64.4001, -31.2001), 4326)::geography, ?)`, uuid.New(), otherUserID).Error; err != nil {
+			t.Fatalf("insert limit non-match %d: %v", i, err)
+		}
+	}
+	limitQuery := baseQuery
+	limitQuery.Search = "needle after fifty"
+	assertNearbyIDs("filters before limit", limitQuery, limitMatchID)
 	if _, err := offerRepo.FindByID(uuid.New()); err != gorm.ErrRecordNotFound {
 		t.Fatalf("FindByID(missing) error = %v, want record not found", err)
 	}

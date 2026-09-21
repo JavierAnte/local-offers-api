@@ -20,7 +20,7 @@ type OfferHandler struct {
 
 type offerService interface {
 	Create(req dto.CreateOfferRequest, userID uuid.UUID) error
-	FindNearby(latitude float64, longitude float64, radiusMeters int) ([]dto.OfferResponse, error)
+	FindNearby(query dto.NearbyOffersQuery) ([]dto.OfferResponse, error)
 	FindByID(id string) (*dto.OfferResponse, error)
 }
 
@@ -91,14 +91,25 @@ func (h *OfferHandler) FindNearby(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	offers, err := h.service.FindNearby(latitude, longitude, radius)
+	offers, err := h.service.FindNearby(dto.NearbyOffersQuery{
+		Latitude:     latitude,
+		Longitude:    longitude,
+		RadiusMeters: radius,
+		Category:     r.URL.Query().Get("category"),
+		Search:       r.URL.Query().Get("q"),
+	})
 	if err != nil {
-		if errors.Is(err, services.ErrInvalidInput) {
+		switch {
+		case errors.Is(err, services.ErrInvalidInput):
 			httpx.WriteError(w, http.StatusBadRequest, "invalid_coordinates", "Latitude and longitude must be valid coordinates.")
-			return
+		case errors.Is(err, services.ErrInvalidCategory):
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_category", "Category must be one of the supported values.")
+		case errors.Is(err, services.ErrInvalidSearchQuery):
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_search_query", "Search query must be at most 100 characters.")
+		default:
+			log.Printf("find nearby offers: %v", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "An unexpected error occurred.")
 		}
-		log.Printf("find nearby offers: %v", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "An unexpected error occurred.")
 		return
 	}
 

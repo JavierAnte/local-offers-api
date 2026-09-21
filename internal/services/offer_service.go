@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/JavierAnte/local-offers-api/internal/dto"
 	"github.com/JavierAnte/local-offers-api/internal/models"
@@ -25,7 +26,7 @@ type OfferService struct {
 
 type offerRepository interface {
 	Create(offer *models.Offer) error
-	FindNearby(latitude float64, longitude float64, radiusMeters int) ([]dto.OfferResponse, error)
+	FindNearby(query dto.NearbyOffersQuery) ([]dto.OfferResponse, error)
 	FindByID(id uuid.UUID) (*dto.OfferResponse, error)
 }
 
@@ -69,20 +70,24 @@ func (s *OfferService) Create(req dto.CreateOfferRequest, userID uuid.UUID) erro
 	return s.repo.Create(&offer)
 }
 
-func (s *OfferService) FindNearby(
-	latitude float64,
-	longitude float64,
-	radiusMeters int,
-) ([]dto.OfferResponse, error) {
-	if !validCoordinates(latitude, longitude) || radiusMeters <= 0 {
+func (s *OfferService) FindNearby(query dto.NearbyOffersQuery) ([]dto.OfferResponse, error) {
+	if !validCoordinates(query.Latitude, query.Longitude) || query.RadiusMeters <= 0 {
 		return nil, ErrInvalidInput
 	}
 
-	return s.repo.FindNearby(
-		latitude,
-		longitude,
-		radiusMeters,
-	)
+	query.Category = strings.TrimSpace(query.Category)
+	if query.Category != "" {
+		if _, ok := validCategories[query.Category]; !ok {
+			return nil, ErrInvalidCategory
+		}
+	}
+
+	query.Search = strings.TrimSpace(query.Search)
+	if utf8.RuneCountInString(query.Search) > 100 {
+		return nil, ErrInvalidSearchQuery
+	}
+
+	return s.repo.FindNearby(query)
 }
 
 func (s *OfferService) FindByID(id string) (*dto.OfferResponse, error) {

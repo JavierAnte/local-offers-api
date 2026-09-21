@@ -28,11 +28,7 @@ func (r *OfferRepository) Create(offer *models.Offer) error {
 	return r.db.Create(offer).Error
 }
 
-func (r *OfferRepository) FindNearby(
-	latitude float64,
-	longitude float64,
-	radiusMeters int,
-) ([]dto.OfferResponse, error) {
+func (r *OfferRepository) FindNearby(filters dto.NearbyOffersQuery) ([]dto.OfferResponse, error) {
 
 	var rows []offerRow
 
@@ -70,17 +66,28 @@ func (r *OfferRepository) FindNearby(
 			ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
 			?
 		)
+		AND (? = '' OR o.category = ?)
+		AND (
+			? = '' OR STRPOS(
+				LOWER(CONCAT_WS(' ', o.headline, o.business_name, COALESCE(o.description, ''))),
+				LOWER(?)
+			) > 0
+		)
 		ORDER BY distance_meters ASC
 		LIMIT 50;
 	`
 
 	err := r.db.Raw(
 		query,
-		longitude,
-		latitude,
-		longitude,
-		latitude,
-		radiusMeters,
+		filters.Longitude,
+		filters.Latitude,
+		filters.Longitude,
+		filters.Latitude,
+		filters.RadiusMeters,
+		filters.Category,
+		filters.Category,
+		filters.Search,
+		filters.Search,
 	).Scan(&rows).Error
 
 	if err != nil {

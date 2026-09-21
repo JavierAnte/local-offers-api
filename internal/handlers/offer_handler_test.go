@@ -15,10 +15,9 @@ import (
 )
 
 type fakeOfferService struct {
-	findResult          *dto.OfferResponse
-	err                 error
-	latitude, longitude float64
-	radius              int
+	findResult  *dto.OfferResponse
+	err         error
+	nearbyQuery dto.NearbyOffersQuery
 }
 
 func TestOfferHandlerCreate(t *testing.T) {
@@ -48,8 +47,8 @@ func TestOfferHandlerCreate(t *testing.T) {
 }
 
 func (f *fakeOfferService) Create(dto.CreateOfferRequest, uuid.UUID) error { return f.err }
-func (f *fakeOfferService) FindNearby(lat, lng float64, radius int) ([]dto.OfferResponse, error) {
-	f.latitude, f.longitude, f.radius = lat, lng, radius
+func (f *fakeOfferService) FindNearby(query dto.NearbyOffersQuery) ([]dto.OfferResponse, error) {
+	f.nearbyQuery = query
 	return []dto.OfferResponse{}, f.err
 }
 func (f *fakeOfferService) FindByID(string) (*dto.OfferResponse, error) { return f.findResult, f.err }
@@ -83,8 +82,56 @@ func TestOfferHandlerFindNearby(t *testing.T) {
 			if recorder.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d: %s", recorder.Code, tt.wantStatus, recorder.Body.String())
 			}
-			if tt.wantRadius != 0 && service.radius != tt.wantRadius {
-				t.Fatalf("radius = %d, want %d", service.radius, tt.wantRadius)
+			if tt.wantRadius != 0 && service.nearbyQuery.RadiusMeters != tt.wantRadius {
+				t.Fatalf("radius = %d, want %d", service.nearbyQuery.RadiusMeters, tt.wantRadius)
+			}
+		})
+	}
+}
+
+func TestOfferHandlerFindNearbyFilters(t *testing.T) {
+	t.Parallel()
+
+	service := &fakeOfferService{}
+	recorder := httptest.NewRecorder()
+	offerRouter(service).ServeHTTP(recorder, httptest.NewRequest(
+		http.MethodGet,
+		"/offers/nearby?lat=-31.2&lng=-64.4&category=%20food%20&q=%20Pizza%20",
+		nil,
+	))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if service.nearbyQuery.Category != " food " || service.nearbyQuery.Search != " Pizza " {
+		t.Fatalf("filters = %#v", service.nearbyQuery)
+	}
+}
+
+func TestOfferHandlerFindNearbyFilterErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name, query, code string
+		err               error
+	}{
+		{"invalid category", "&category=cars", "invalid_category", services.ErrInvalidCategory},
+		{"long query", "&q=long", "invalid_search_query", services.ErrInvalidSearchQuery},
+		{"internal", "&q=pizza", "internal_error", errors.New("db")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			recorder := httptest.NewRecorder()
+			offerRouter(&fakeOfferService{err: tt.err}).ServeHTTP(recorder, httptest.NewRequest(
+				http.MethodGet,
+				"/offers/nearby?lat=-31.2&lng=-64.4"+tt.query,
+				nil,
+			))
+			wantStatus := http.StatusBadRequest
+			if tt.code == "internal_error" {
+				wantStatus = http.StatusInternalServerError
+			}
+			if recorder.Code != wantStatus || !strings.Contains(recorder.Body.String(), `"code":"`+tt.code+`"`) {
+				t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 			}
 		})
 	}
