@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/JavierAnte/local-offers-api/internal/models"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type CommentService struct {
@@ -34,14 +36,6 @@ func (s *CommentService) Create(req dto.CreateCommentRequest, offerID string, us
 	if err != nil {
 		return ErrInvalidInput
 	}
-	exists, err := s.repo.OfferExists(parsedOfferID)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return ErrNotFound
-	}
-
 	comment := models.Comment{
 		ID: uuid.New(),
 
@@ -53,7 +47,13 @@ func (s *CommentService) Create(req dto.CreateCommentRequest, offerID string, us
 		CreatedAt: time.Now(),
 	}
 
-	return s.repo.Create(&comment)
+	if err := s.repo.Create(&comment); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrNotFound
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *CommentService) FindByOfferID(offerID string) ([]dto.CommentResponse, error) {

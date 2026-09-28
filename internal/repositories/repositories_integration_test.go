@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/JavierAnte/local-offers-api/internal/dto"
 	"github.com/JavierAnte/local-offers-api/internal/models"
 	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
@@ -31,7 +32,7 @@ func integrationDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("connect to integration database: %v", err)
 	}
-	if err := db.Exec("DROP TABLE IF EXISTS offer_votes, comments, offers, users CASCADE").Error; err != nil {
+	if err := db.Exec("DROP TABLE IF EXISTS notifications, offer_votes, comments, offers, users CASCADE").Error; err != nil {
 		t.Fatalf("reset integration database: %v", err)
 	}
 
@@ -78,13 +79,78 @@ func TestRepositoriesWithPostGIS(t *testing.T) {
 	}
 
 	offerRepo := NewOfferRepository(db)
-	offers, err := offerRepo.FindNearby(-31.2, -64.4, 5000)
+	offers, err := offerRepo.FindNearby(dto.NearbyOffersQuery{
+		Latitude: -31.2, Longitude: -64.4, RadiusMeters: 5000,
+	})
 	if err != nil {
 		t.Fatalf("FindNearby() error = %v", err)
 	}
 	if len(offers) != 3 || offers[0].ID != offerNearID || offers[0].PostedBy.ID != userID.String() {
 		t.Fatalf("FindNearby() = %#v", offers)
 	}
+
+	filteredOfferID := uuid.New()
+	if err := db.Exec(`INSERT INTO offers
+		(id, headline, description, business_name, category, offer_type, location, user_id)
+		VALUES (?, 'Gran descuento', 'Incluye pizza familiar', 'Mercado Centro', 'grocery',
+		'{"type":"percentage","percentage":30}',
+		ST_SetSRID(ST_MakePoint(-64.405, -31.205), 4326)::geography, ?)`, filteredOfferID, otherUserID).Error; err != nil {
+		t.Fatalf("insert filtered offer: %v", err)
+	}
+
+	assertNearbyIDs := func(name string, query dto.NearbyOffersQuery, want ...uuid.UUID) {
+		t.Helper()
+		got, err := offerRepo.FindNearby(query)
+		if err != nil {
+			t.Fatalf("%s: FindNearby() error = %v", name, err)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("%s: got %d offers, want %d: %#v", name, len(got), len(want), got)
+		}
+		for i := range want {
+			if got[i].ID != want[i] {
+				t.Fatalf("%s: offer %d = %s, want %s", name, i, got[i].ID, want[i])
+			}
+		}
+	}
+	baseQuery := dto.NearbyOffersQuery{Latitude: -31.2, Longitude: -64.4, RadiusMeters: 5000}
+	categoryQuery := baseQuery
+	categoryQuery.Category = "grocery"
+	assertNearbyIDs("category", categoryQuery, filteredOfferID)
+	searchQuery := baseQuery
+	searchQuery.Search = "PIZZA"
+	assertNearbyIDs("description search", searchQuery, filteredOfferID)
+	searchQuery.Search = "mercado centro"
+	assertNearbyIDs("business search", searchQuery, filteredOfferID)
+	searchQuery.Search = "gran descuento"
+	assertNearbyIDs("headline search", searchQuery, filteredOfferID)
+	searchQuery.Search = "%_"
+	assertNearbyIDs("literal wildcard search", searchQuery)
+	combinedQuery := baseQuery
+	combinedQuery.Category = "food"
+	combinedQuery.Search = "pizza"
+	assertNearbyIDs("combined filters", combinedQuery)
+
+	limitMatchID := uuid.New()
+	if err := db.Exec(`INSERT INTO offers
+		(id, headline, business_name, category, offer_type, location, user_id)
+		VALUES (?, 'Needle after fifty', 'Search Test', 'sports',
+		'{"type":"text","label":"Deal"}',
+		ST_SetSRID(ST_MakePoint(-64.415, -31.215), 4326)::geography, ?)`, limitMatchID, otherUserID).Error; err != nil {
+		t.Fatalf("insert limit match: %v", err)
+	}
+	for i := 0; i < 51; i++ {
+		if err := db.Exec(`INSERT INTO offers
+			(id, headline, business_name, category, offer_type, location, user_id)
+			VALUES (?, 'Closer non-match', 'Search Test', 'sports',
+			'{"type":"text","label":"Deal"}',
+			ST_SetSRID(ST_MakePoint(-64.4001, -31.2001), 4326)::geography, ?)`, uuid.New(), otherUserID).Error; err != nil {
+			t.Fatalf("insert limit non-match %d: %v", i, err)
+		}
+	}
+	limitQuery := baseQuery
+	limitQuery.Search = "needle after fifty"
+	assertNearbyIDs("filters before limit", limitQuery, limitMatchID)
 	if _, err := offerRepo.FindByID(uuid.New()); err != gorm.ErrRecordNotFound {
 		t.Fatalf("FindByID(missing) error = %v, want record not found", err)
 	}
@@ -99,12 +165,12 @@ func TestRepositoriesWithPostGIS(t *testing.T) {
 	}
 
 	commentRepo := NewCommentRepository(db)
-	comment := &models.Comment{ID: uuid.New(), OfferID: offerNearID, UserID: userID, Body: "Available"}
+	comment := &models.Comment{ID: uuid.New(), OfferID: offerNearID, UserID: otherUserID, Body: "Available"}
 	if err := commentRepo.Create(comment); err != nil {
 		t.Fatalf("create comment: %v", err)
 	}
 	comments, err := commentRepo.FindByOfferID(offerNearID)
-	if err != nil || len(comments) != 1 || comments[0].PostedBy.ID != userID.String() {
+	if err != nil || len(comments) != 1 || comments[0].PostedBy.ID != otherUserID.String() {
 		t.Fatalf("FindByOfferID() = %#v, %v", comments, err)
 	}
 	found, err := offerRepo.FindByID(offerNearID)
@@ -113,26 +179,77 @@ func TestRepositoriesWithPostGIS(t *testing.T) {
 	}
 
 	voteRepo := NewOfferVoteRepository(db)
-	confirmations, invalidations, err := voteRepo.Vote(offerNearID, userID, models.VoteTypeValidate)
+	confirmations, invalidations, err := voteRepo.Vote(offerNearID, otherUserID, models.VoteTypeValidate)
 	if err != nil || confirmations != 1 || invalidations != 0 {
 		t.Fatalf("validate counts = %d/%d, %v", confirmations, invalidations, err)
 	}
-	confirmations, invalidations, err = voteRepo.Vote(offerNearID, userID, models.VoteTypeInvalidate)
+	confirmations, invalidations, err = voteRepo.Vote(offerNearID, otherUserID, models.VoteTypeValidate)
+	if err != nil || confirmations != 1 || invalidations != 0 {
+		t.Fatalf("repeated validate counts = %d/%d, %v", confirmations, invalidations, err)
+	}
+	confirmations, invalidations, err = voteRepo.Vote(offerNearID, otherUserID, models.VoteTypeInvalidate)
 	if err != nil || confirmations != 0 || invalidations != 1 {
 		t.Fatalf("switched counts = %d/%d, %v", confirmations, invalidations, err)
 	}
 
-	if err := db.Exec("ALTER TABLE offers ADD CONSTRAINT force_vote_rollback CHECK (confirmations_count = 0)").Error; err != nil {
-		t.Fatalf("add rollback constraint: %v", err)
+	notificationRepo := NewNotificationRepository(db)
+	notifications, err := notificationRepo.FindByRecipientID(userID)
+	if err != nil {
+		t.Fatalf("FindByRecipientID() error = %v", err)
 	}
-	if _, _, err := voteRepo.Vote(offerNearID, userID, models.VoteTypeValidate); err == nil {
-		t.Fatal("Vote() error = nil, want forced transaction failure")
+	if len(notifications) != 3 {
+		t.Fatalf("notifications count = %d, want 3: %#v", len(notifications), notifications)
+	}
+	if notifications[0].Type != string(models.NotificationTypeOfferInvalidated) ||
+		notifications[1].Type != string(models.NotificationTypeOfferValidated) ||
+		notifications[2].Type != string(models.NotificationTypeCommentReceived) {
+		t.Fatalf("notification order/types = %#v", notifications)
+	}
+	for _, notification := range notifications {
+		if notification.OfferID != offerNearID || notification.OfferHeadline != "Near" || notification.Actor.ID != otherUserID.String() {
+			t.Fatalf("notification data = %#v", notification)
+		}
+	}
+	otherNotifications, err := notificationRepo.FindByRecipientID(otherUserID)
+	if err != nil || len(otherNotifications) != 0 {
+		t.Fatalf("other recipient notifications = %#v, %v", otherNotifications, err)
+	}
+
+	selfComment := &models.Comment{ID: uuid.New(), OfferID: offerNearID, UserID: userID, Body: "My own update"}
+	if err := commentRepo.Create(selfComment); err != nil {
+		t.Fatalf("create self comment: %v", err)
+	}
+	if _, _, err := voteRepo.Vote(offerNearID, userID, models.VoteTypeInvalidate); err != nil {
+		t.Fatalf("create self vote: %v", err)
+	}
+	notifications, err = notificationRepo.FindByRecipientID(userID)
+	if err != nil || len(notifications) != 3 {
+		t.Fatalf("notifications after self activity = %#v, %v", notifications, err)
+	}
+
+	if err := db.Exec("ALTER TABLE notifications ADD CONSTRAINT force_notification_rollback CHECK (actor_user_id = recipient_user_id) NOT VALID").Error; err != nil {
+		t.Fatalf("add notification rollback constraint: %v", err)
+	}
+	failedComment := &models.Comment{ID: uuid.New(), OfferID: offerNearID, UserID: otherUserID, Body: "Must roll back"}
+	if err := commentRepo.Create(failedComment); err == nil {
+		t.Fatal("Create() error = nil, want forced notification failure")
+	}
+	comments, err = commentRepo.FindByOfferID(offerNearID)
+	if err != nil || len(comments) != 2 {
+		t.Fatalf("comments after rollback = %#v, %v", comments, err)
+	}
+	if _, _, err := voteRepo.Vote(offerNearID, otherUserID, models.VoteTypeValidate); err == nil {
+		t.Fatal("Vote() error = nil, want forced notification failure")
 	}
 	var storedType models.VoteType
-	if err := db.Model(&models.OfferVote{}).Select("type").Where("offer_id = ? AND user_id = ?", offerNearID, userID).Scan(&storedType).Error; err != nil {
+	if err := db.Model(&models.OfferVote{}).Select("type").Where("offer_id = ? AND user_id = ?", offerNearID, otherUserID).Scan(&storedType).Error; err != nil {
 		t.Fatalf("read vote after rollback: %v", err)
 	}
 	if storedType != models.VoteTypeInvalidate {
 		t.Fatalf("vote after rollback = %q, want invalidate", storedType)
+	}
+	notifications, err = notificationRepo.FindByRecipientID(userID)
+	if err != nil || len(notifications) != 3 {
+		t.Fatalf("notifications after rollback = %#v, %v", notifications, err)
 	}
 }

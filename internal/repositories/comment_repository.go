@@ -5,6 +5,7 @@ import (
 	"github.com/JavierAnte/local-offers-api/internal/models"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type CommentRepository struct {
@@ -26,7 +27,29 @@ type commentRow struct {
 }
 
 func (r *CommentRepository) Create(comment *models.Comment) error {
-	return r.db.Create(comment).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var offer models.Offer
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id", "user_id").First(&offer, "id = ?", comment.OfferID).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Create(comment).Error; err != nil {
+			return err
+		}
+
+		if offer.UserID == nil || *offer.UserID == comment.UserID {
+			return nil
+		}
+
+		notification := models.Notification{
+			ID:              uuid.New(),
+			RecipientUserID: *offer.UserID,
+			ActorUserID:     comment.UserID,
+			OfferID:         comment.OfferID,
+			Type:            models.NotificationTypeCommentReceived,
+		}
+		return tx.Create(&notification).Error
+	})
 }
 
 func (r *CommentRepository) OfferExists(offerID uuid.UUID) (bool, error) {

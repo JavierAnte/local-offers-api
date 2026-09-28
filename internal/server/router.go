@@ -11,12 +11,13 @@ import (
 )
 
 type Handlers struct {
-	Auth      *handlers.AuthHandler
-	Offer     *handlers.OfferHandler
-	Comment   *handlers.CommentHandler
-	OfferVote *handlers.OfferVoteHandler
-	Upload    *handlers.UploadHandler
-	User      *handlers.UserHandler
+	Auth         *handlers.AuthHandler
+	Offer        *handlers.OfferHandler
+	Comment      *handlers.CommentHandler
+	OfferVote    *handlers.OfferVoteHandler
+	Upload       *handlers.UploadHandler
+	User         *handlers.UserHandler
+	Notification *handlers.NotificationHandler
 }
 
 func NewRouter(jwtSecret string, uploadDir string, h Handlers) http.Handler {
@@ -54,6 +55,7 @@ func NewRouter(jwtSecret string, uploadDir string, h Handlers) http.Handler {
 			r.Post("/uploads", h.Upload.Create)
 			r.Get("/me", h.User.Me)
 			r.Get("/me/offers", h.User.MyOffers)
+			r.Get("/me/notifications", h.Notification.List)
 		})
 	})
 

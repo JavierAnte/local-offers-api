@@ -49,17 +49,21 @@ func main() {
 	offerVoteRepo := repositories.NewOfferVoteRepository(db)
 	offerVoteService := services.NewOfferVoteService(offerVoteRepo)
 	offerVoteHandler := handlers.NewOfferVoteHandler(offerVoteService)
+	notificationRepo := repositories.NewNotificationRepository(db)
+	notificationService := services.NewNotificationService(notificationRepo)
+	notificationHandler := handlers.NewNotificationHandler(notificationService)
 
 	uploadService := services.NewUploadService(uploadDir)
 	uploadHandler := handlers.NewUploadHandler(uploadService)
 
 	r := server.NewRouter(cfg.JWTSecret, uploadDir, server.Handlers{
-		Auth:      authHandler,
-		Offer:     offerHandler,
-		Comment:   commentHandler,
-		OfferVote: offerVoteHandler,
-		Upload:    uploadHandler,
-		User:      userHandler,
+		Auth:         authHandler,
+		Offer:        offerHandler,
+		Comment:      commentHandler,
+		OfferVote:    offerVoteHandler,
+		Upload:       uploadHandler,
+		User:         userHandler,
+		Notification: notificationHandler,
 	})
 
 	httpServer := &http.Server{

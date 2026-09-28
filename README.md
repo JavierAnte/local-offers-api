@@ -1,6 +1,6 @@
 # LocalOffers API
 
-Go REST API for LocalOffers. It provides authentication, nearby-offer discovery, offer publishing, comments, voting, and image uploads. Product-level documentation lives in the sibling coordination repository's [`docs/`](../docs/) directory.
+Go REST API for LocalOffers. It provides authentication, nearby-offer discovery, offer publishing, comments, voting, in-app notifications, and image uploads. Product-level documentation lives in the sibling coordination repository's [`docs/`](../docs/) directory.
 
 ## Stack
 

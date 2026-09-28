@@ -8,6 +8,7 @@ import (
 	"github.com/JavierAnte/local-offers-api/internal/dto"
 	"github.com/JavierAnte/local-offers-api/internal/models"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type fakeCommentRepository struct {
@@ -18,6 +19,9 @@ type fakeCommentRepository struct {
 
 func (f *fakeCommentRepository) Create(comment *models.Comment) error {
 	f.created = comment
+	if !f.exists {
+		return gorm.ErrRecordNotFound
+	}
 	return f.err
 }
 func (f *fakeCommentRepository) OfferExists(uuid.UUID) (bool, error) { return f.exists, f.err }
