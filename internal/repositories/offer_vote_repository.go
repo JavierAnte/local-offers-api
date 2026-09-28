@@ -29,9 +29,16 @@ func (r *OfferVoteRepository) Vote(
 		var offer models.Offer
 		// Serialize votes for the same offer so each transaction counts all
 		// previously committed votes before refreshing the denormalized totals.
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&offer, "id = ?", offerID).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id", "user_id").First(&offer, "id = ?", offerID).Error; err != nil {
 			return err
 		}
+
+		var previousVote models.OfferVote
+		previousVoteResult := tx.Where("offer_id = ? AND user_id = ?", offerID, userID).Limit(1).Find(&previousVote)
+		if previousVoteResult.Error != nil {
+			return previousVoteResult.Error
+		}
+		voteChanged := previousVoteResult.RowsAffected == 0 || previousVote.Type != voteType
 
 		vote := models.OfferVote{
 			ID: uuid.New(),
@@ -69,10 +76,29 @@ func (r *OfferVoteRepository) Vote(
 		confirmationsCount = int(confirmations)
 		invalidationsCount = int(invalidations)
 
-		return tx.Model(&models.Offer{}).Where("id = ?", offerID).Updates(map[string]interface{}{
+		if err := tx.Model(&models.Offer{}).Where("id = ?", offerID).Updates(map[string]interface{}{
 			"confirmations_count": confirmationsCount,
 			"invalidations_count": invalidationsCount,
-		}).Error
+		}).Error; err != nil {
+			return err
+		}
+
+		if !voteChanged || offer.UserID == nil || *offer.UserID == userID {
+			return nil
+		}
+
+		notificationType := models.NotificationTypeOfferValidated
+		if voteType == models.VoteTypeInvalidate {
+			notificationType = models.NotificationTypeOfferInvalidated
+		}
+		notification := models.Notification{
+			ID:              uuid.New(),
+			RecipientUserID: *offer.UserID,
+			ActorUserID:     userID,
+			OfferID:         offerID,
+			Type:            notificationType,
+		}
+		return tx.Create(&notification).Error
 	})
 
 	return confirmationsCount, invalidationsCount, err

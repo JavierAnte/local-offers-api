@@ -32,7 +32,7 @@ func integrationDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("connect to integration database: %v", err)
 	}
-	if err := db.Exec("DROP TABLE IF EXISTS offer_votes, comments, offers, users CASCADE").Error; err != nil {
+	if err := db.Exec("DROP TABLE IF EXISTS notifications, offer_votes, comments, offers, users CASCADE").Error; err != nil {
 		t.Fatalf("reset integration database: %v", err)
 	}
 
@@ -165,12 +165,12 @@ func TestRepositoriesWithPostGIS(t *testing.T) {
 	}
 
 	commentRepo := NewCommentRepository(db)
-	comment := &models.Comment{ID: uuid.New(), OfferID: offerNearID, UserID: userID, Body: "Available"}
+	comment := &models.Comment{ID: uuid.New(), OfferID: offerNearID, UserID: otherUserID, Body: "Available"}
 	if err := commentRepo.Create(comment); err != nil {
 		t.Fatalf("create comment: %v", err)
 	}
 	comments, err := commentRepo.FindByOfferID(offerNearID)
-	if err != nil || len(comments) != 1 || comments[0].PostedBy.ID != userID.String() {
+	if err != nil || len(comments) != 1 || comments[0].PostedBy.ID != otherUserID.String() {
 		t.Fatalf("FindByOfferID() = %#v, %v", comments, err)
 	}
 	found, err := offerRepo.FindByID(offerNearID)
@@ -179,26 +179,77 @@ func TestRepositoriesWithPostGIS(t *testing.T) {
 	}
 
 	voteRepo := NewOfferVoteRepository(db)
-	confirmations, invalidations, err := voteRepo.Vote(offerNearID, userID, models.VoteTypeValidate)
+	confirmations, invalidations, err := voteRepo.Vote(offerNearID, otherUserID, models.VoteTypeValidate)
 	if err != nil || confirmations != 1 || invalidations != 0 {
 		t.Fatalf("validate counts = %d/%d, %v", confirmations, invalidations, err)
 	}
-	confirmations, invalidations, err = voteRepo.Vote(offerNearID, userID, models.VoteTypeInvalidate)
+	confirmations, invalidations, err = voteRepo.Vote(offerNearID, otherUserID, models.VoteTypeValidate)
+	if err != nil || confirmations != 1 || invalidations != 0 {
+		t.Fatalf("repeated validate counts = %d/%d, %v", confirmations, invalidations, err)
+	}
+	confirmations, invalidations, err = voteRepo.Vote(offerNearID, otherUserID, models.VoteTypeInvalidate)
 	if err != nil || confirmations != 0 || invalidations != 1 {
 		t.Fatalf("switched counts = %d/%d, %v", confirmations, invalidations, err)
 	}
 
-	if err := db.Exec("ALTER TABLE offers ADD CONSTRAINT force_vote_rollback CHECK (confirmations_count = 0)").Error; err != nil {
-		t.Fatalf("add rollback constraint: %v", err)
+	notificationRepo := NewNotificationRepository(db)
+	notifications, err := notificationRepo.FindByRecipientID(userID)
+	if err != nil {
+		t.Fatalf("FindByRecipientID() error = %v", err)
 	}
-	if _, _, err := voteRepo.Vote(offerNearID, userID, models.VoteTypeValidate); err == nil {
-		t.Fatal("Vote() error = nil, want forced transaction failure")
+	if len(notifications) != 3 {
+		t.Fatalf("notifications count = %d, want 3: %#v", len(notifications), notifications)
+	}
+	if notifications[0].Type != string(models.NotificationTypeOfferInvalidated) ||
+		notifications[1].Type != string(models.NotificationTypeOfferValidated) ||
+		notifications[2].Type != string(models.NotificationTypeCommentReceived) {
+		t.Fatalf("notification order/types = %#v", notifications)
+	}
+	for _, notification := range notifications {
+		if notification.OfferID != offerNearID || notification.OfferHeadline != "Near" || notification.Actor.ID != otherUserID.String() {
+			t.Fatalf("notification data = %#v", notification)
+		}
+	}
+	otherNotifications, err := notificationRepo.FindByRecipientID(otherUserID)
+	if err != nil || len(otherNotifications) != 0 {
+		t.Fatalf("other recipient notifications = %#v, %v", otherNotifications, err)
+	}
+
+	selfComment := &models.Comment{ID: uuid.New(), OfferID: offerNearID, UserID: userID, Body: "My own update"}
+	if err := commentRepo.Create(selfComment); err != nil {
+		t.Fatalf("create self comment: %v", err)
+	}
+	if _, _, err := voteRepo.Vote(offerNearID, userID, models.VoteTypeInvalidate); err != nil {
+		t.Fatalf("create self vote: %v", err)
+	}
+	notifications, err = notificationRepo.FindByRecipientID(userID)
+	if err != nil || len(notifications) != 3 {
+		t.Fatalf("notifications after self activity = %#v, %v", notifications, err)
+	}
+
+	if err := db.Exec("ALTER TABLE notifications ADD CONSTRAINT force_notification_rollback CHECK (actor_user_id = recipient_user_id) NOT VALID").Error; err != nil {
+		t.Fatalf("add notification rollback constraint: %v", err)
+	}
+	failedComment := &models.Comment{ID: uuid.New(), OfferID: offerNearID, UserID: otherUserID, Body: "Must roll back"}
+	if err := commentRepo.Create(failedComment); err == nil {
+		t.Fatal("Create() error = nil, want forced notification failure")
+	}
+	comments, err = commentRepo.FindByOfferID(offerNearID)
+	if err != nil || len(comments) != 2 {
+		t.Fatalf("comments after rollback = %#v, %v", comments, err)
+	}
+	if _, _, err := voteRepo.Vote(offerNearID, otherUserID, models.VoteTypeValidate); err == nil {
+		t.Fatal("Vote() error = nil, want forced notification failure")
 	}
 	var storedType models.VoteType
-	if err := db.Model(&models.OfferVote{}).Select("type").Where("offer_id = ? AND user_id = ?", offerNearID, userID).Scan(&storedType).Error; err != nil {
+	if err := db.Model(&models.OfferVote{}).Select("type").Where("offer_id = ? AND user_id = ?", offerNearID, otherUserID).Scan(&storedType).Error; err != nil {
 		t.Fatalf("read vote after rollback: %v", err)
 	}
 	if storedType != models.VoteTypeInvalidate {
 		t.Fatalf("vote after rollback = %q, want invalidate", storedType)
+	}
+	notifications, err = notificationRepo.FindByRecipientID(userID)
+	if err != nil || len(notifications) != 3 {
+		t.Fatalf("notifications after rollback = %#v, %v", notifications, err)
 	}
 }

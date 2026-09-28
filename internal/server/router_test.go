@@ -14,7 +14,7 @@ func TestRouterHealth(t *testing.T) {
 	router := NewRouter("secret", t.TempDir(), Handlers{
 		Auth: &handlers.AuthHandler{}, Offer: &handlers.OfferHandler{},
 		Comment: &handlers.CommentHandler{}, OfferVote: &handlers.OfferVoteHandler{},
-		Upload: &handlers.UploadHandler{},
+		Upload: &handlers.UploadHandler{}, Notification: &handlers.NotificationHandler{},
 	})
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
@@ -28,7 +28,7 @@ func TestRouterProtectsWriteRoutes(t *testing.T) {
 	router := NewRouter("secret", t.TempDir(), Handlers{
 		Auth: &handlers.AuthHandler{}, Offer: &handlers.OfferHandler{},
 		Comment: &handlers.CommentHandler{}, OfferVote: &handlers.OfferVoteHandler{},
-		Upload: &handlers.UploadHandler{},
+		Upload: &handlers.UploadHandler{}, Notification: &handlers.NotificationHandler{},
 	})
 	requests := []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/offers"},
@@ -37,6 +37,7 @@ func TestRouterProtectsWriteRoutes(t *testing.T) {
 		{http.MethodPost, "/api/v1/uploads"},
 		{http.MethodGet, "/api/v1/me"},
 		{http.MethodGet, "/api/v1/me/offers"},
+		{http.MethodGet, "/api/v1/me/notifications"},
 	}
 	for _, request := range requests {
 		recorder := httptest.NewRecorder()
