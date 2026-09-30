@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS offer_votes;
+DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS offers;
+DROP TABLE IF EXISTS users;
