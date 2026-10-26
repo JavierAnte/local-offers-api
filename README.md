@@ -50,6 +50,33 @@ LOCAL_OFFERS_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/loca
 
 The integration suite drops and rebuilds its tables from the real migrations. Its database-name guard prevents it from targeting the normal development database. GitHub Actions runs formatting, vet, race-enabled unit tests, core-package coverage, and PostGIS integration tests for pull requests and pushes to `main`.
 
+## Production Compose stack
+
+The production-like stack contains PostGIS, a one-shot migration service, the API, and Caddy. PostgreSQL has no host port; Caddy is the only public entry point. Database data, uploaded images, and Caddy state use named volumes.
+
+Create the server-only environment file and replace every example hostname and secret:
+
+```bash
+cp .env.production.example .env.production
+```
+
+Use a strong URL-safe database password because the migration container interpolates it into a PostgreSQL URL. Never commit `.env.production`.
+
+Start or update the complete stack with one command:
+
+```bash
+docker compose --env-file .env.production -f compose.production.yml up -d --build --wait
+```
+
+Inspect status and logs with:
+
+```bash
+docker compose --env-file .env.production -f compose.production.yml ps -a
+docker compose --env-file .env.production -f compose.production.yml logs --tail=200
+```
+
+For the real server, set `CADDY_ADDRESS=api.<domain>` and `PUBLIC_BASE_URL=https://api.<domain>`. Caddy then obtains and renews HTTPS certificates automatically once DNS and ports 80/443 are configured. Do not seed or restore local development data into this stack.
+
 ## Error responses
 
 API failures use a stable JSON envelope:
