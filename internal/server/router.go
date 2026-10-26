@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/JavierAnte/local-offers-api/internal/auth"
 	"github.com/JavierAnte/local-offers-api/internal/handlers"
@@ -23,6 +24,7 @@ type Handlers struct {
 func NewRouter(jwtSecret string, uploadDir string, h Handlers) http.Handler {
 	r := chi.NewRouter()
 
+	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
@@ -39,8 +41,11 @@ func NewRouter(jwtSecret string, uploadDir string, h Handlers) http.Handler {
 
 	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
 
+	registerRateLimit := rateLimitByIP(10, time.Hour)
+	uploadRateLimit := rateLimitByIP(30, time.Hour)
+
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Post("/auth/register", h.Auth.Register)
+		r.With(registerRateLimit).Post("/auth/register", h.Auth.Register)
 		r.Post("/auth/login", h.Auth.Login)
 
 		r.Get("/offers/{id}", h.Offer.FindByID)
@@ -52,7 +57,7 @@ func NewRouter(jwtSecret string, uploadDir string, h Handlers) http.Handler {
 			r.Post("/offers", h.Offer.Create)
 			r.Post("/offers/{id}/comments", h.Comment.Create)
 			r.Post("/offers/{id}/votes", h.OfferVote.Create)
-			r.Post("/uploads", h.Upload.Create)
+			r.With(uploadRateLimit).Post("/uploads", h.Upload.Create)
 			r.Get("/me", h.User.Me)
 			r.Get("/me/offers", h.User.MyOffers)
 			r.Get("/me/notifications", h.Notification.List)

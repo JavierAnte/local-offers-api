@@ -52,11 +52,11 @@ func TestUploadHandlerCreate(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
-			NewUploadHandler(tt.service).Create(recorder, tt.request(t))
+			NewUploadHandler(tt.service, "https://cdn.example.test").Create(recorder, tt.request(t))
 			if recorder.Code != tt.status {
 				t.Fatalf("status = %d, want %d: %s", recorder.Code, tt.status, recorder.Body.String())
 			}
-			if tt.name == "success" && !strings.Contains(recorder.Body.String(), "http://api.test/uploads/stored.jpg") {
+			if tt.name == "success" && !strings.Contains(recorder.Body.String(), "https://cdn.example.test/uploads/stored.jpg") {
 				t.Fatalf("body = %s", recorder.Body.String())
 			}
 		})

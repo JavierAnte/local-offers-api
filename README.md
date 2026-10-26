@@ -25,7 +25,7 @@ psql "postgres://postgres:postgres@localhost:5432/local_offers?sslmode=disable" 
 go run ./cmd/api
 ```
 
-The API reads `.env`. `JWT_SECRET` is required. The committed configuration is for local development only and must not be reused in a deployed environment.
+Copy `.env.example` to `.env` for local development. `JWT_SECRET`, `PUBLIC_BASE_URL`, and `UPLOAD_DIR` are required. `PUBLIC_BASE_URL` is the externally reachable API origin without `/api/v1`; uploaded-image URLs are built from it. The example values are for local development only and must not be reused in a deployed environment.
 
 ## Checks
 
