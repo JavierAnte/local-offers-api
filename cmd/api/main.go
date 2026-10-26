@@ -18,7 +18,10 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("load configuration: %v", err)
+	}
 
 	db := database.Connect(cfg)
 	sqlDB, err := db.DB()
@@ -30,8 +33,6 @@ func main() {
 			log.Printf("close database connection: %v", err)
 		}
 	}()
-
-	const uploadDir = "uploads"
 
 	userRepo := repositories.NewUserRepository(db)
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret)
@@ -53,10 +54,10 @@ func main() {
 	notificationService := services.NewNotificationService(notificationRepo)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 
-	uploadService := services.NewUploadService(uploadDir)
-	uploadHandler := handlers.NewUploadHandler(uploadService)
+	uploadService := services.NewUploadService(cfg.UploadDir)
+	uploadHandler := handlers.NewUploadHandler(uploadService, cfg.PublicBaseURL)
 
-	r := server.NewRouter(cfg.JWTSecret, uploadDir, server.Handlers{
+	r := server.NewRouter(cfg.JWTSecret, cfg.UploadDir, server.Handlers{
 		Auth:         authHandler,
 		Offer:        offerHandler,
 		Comment:      commentHandler,

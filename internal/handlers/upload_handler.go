@@ -2,10 +2,10 @@ package handlers
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 
 	"github.com/JavierAnte/local-offers-api/internal/dto"
 	"github.com/JavierAnte/local-offers-api/internal/httpx"
@@ -18,15 +18,16 @@ import (
 const maxUploadBytes = 10 << 20 // 10MB
 
 type UploadHandler struct {
-	service uploadService
+	service       uploadService
+	publicBaseURL string
 }
 
 type uploadService interface {
 	Save(file io.Reader) (string, error)
 }
 
-func NewUploadHandler(service uploadService) *UploadHandler {
-	return &UploadHandler{service: service}
+func NewUploadHandler(service uploadService, publicBaseURL string) *UploadHandler {
+	return &UploadHandler{service: service, publicBaseURL: publicBaseURL}
 }
 
 func (h *UploadHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -60,13 +61,8 @@ func (h *UploadHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-
 	result := dto.UploadResponse{
-		URL: fmt.Sprintf("%s://%s/uploads/%s", scheme, r.Host, filename),
+		URL: h.publicBaseURL + "/uploads/" + url.PathEscape(filename),
 	}
 
 	httpx.WriteJSON(w, http.StatusCreated, result)
